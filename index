@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>PaleoDex Explorador</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&family=Exo+2:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Exo 2', sans-serif;
+            background-color: #3d405b;
+            color: #f4f1de;
+            overflow: hidden;
+        }
+        .font-roboto-mono { font-family: 'Roboto Mono', monospace; }
+        
+        /* Estilos de la PaleoDex */
+        .pokedex-grid {
+            height: calc(100vh - 80px);
+            overflow-y: auto;
+        }
+        .pokedex-grid::-webkit-scrollbar { display: none; }
+        .pokedex-grid { -ms-overflow-style: none; scrollbar-width: none; }
+
+        .stat-bar-bg { background-color: rgba(0, 0, 0, 0.1); }
+        .stat-bar-fill {
+            transition: width 0.8s ease-out;
+            width: 0%;
+        }
+
+        /* Animaciones del Portal */
+        @keyframes portal-entry {
+            0% { transform: scale(0) rotate(0deg); opacity: 0; }
+            100% { transform: scale(1) rotate(-360deg); opacity: 1; }
+        }
+        .portal-entry-animation {
+            animation: portal-entry 0.7s cubic-bezier(0.68, -0.55, 0.27, 1.55) forwards;
+        }
+        @keyframes portal-exit {
+            0% { transform: scale(1) rotate(0deg); opacity: 1; }
+            100% { transform: scale(20) rotate(180deg); opacity: 0; }
+        }
+        .portal-exit-animation {
+            animation: portal-exit 0.8s ease-in forwards;
+        }
+
+        /* Estilos de la escena 3D */
+        #threed-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none;
+        }
+        #threed-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        #back-to-pokedex-btn {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+        }
+        #loading-indicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 1.5rem;
+            text-shadow: 1px 1px 2px black;
+            display: none; /* Oculto por defecto */
+        }
+    </style>
+</head>
+<body class="overflow-hidden">
+
+    <!-- Contenedor Principal de la App 2D -->
+    <div id="app-2d-container" class="w-full h-screen mx-auto max-w-md bg-[#3d405b] flex flex-col">
+
+        <!-- Vista de la PaleoDex (Principal) -->
+        <div id="pokedex-view" class="flex flex-col h-full">
+            <header class="p-4 bg-[#81b29a] shadow-lg flex items-center justify-between">
+                <div class="w-12 h-12 bg-white rounded-full border-4 border-gray-800 flex items-center justify-center">
+                    <div class="w-8 h-8 bg-amber-400 rounded-full shadow-inner"></div>
+                </div>
+                <h1 class="text-3xl font-extrabold text-gray-800 tracking-wider">PaleoDex</h1>
+            </header>
+            <main class="p-2 pokedex-grid grid grid-cols-2 sm:grid-cols-3 gap-2 flex-grow">
+                <!-- Tarjetas de dinosaurios se insertarán aquí -->
+            </main>
+        </div>
+
+        <!-- Vista de Detalle (Modal) -->
+        <div id="detail-modal" class="hidden fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+            <div id="detail-card" class="w-full max-w-sm mx-auto rounded-lg shadow-2xl transform scale-95 transition-transform duration-300">
+                <div class="p-4 rounded-t-lg" style="background-color: var(--card-color, #f2cc8f);">
+                    <div class="flex justify-between items-center mb-2">
+                        <h3 class="text-2xl font-bold text-gray-800"></h3>
+                        <span class="text-lg font-bold text-gray-800 opacity-70"></span>
+                    </div>
+                    <div class="text-center h-40 flex items-center justify-center">
+                        <img src="" alt="Imagen de dinosaurio" class="mx-auto max-h-full w-auto drop-shadow-lg">
+                    </div>
+                </div>
+                <div class="p-4 bg-gray-100 text-gray-800 rounded-b-lg">
+                    <div class="flex justify-center gap-2 mb-4">
+                        <!-- Tipos (dieta) se insertarán aquí -->
+                    </div>
+                    <p class="text-center text-sm text-gray-600 mb-2 font-roboto-mono" id="detail-period"></p>
+                    <p class="text-sm text-center mb-4" id="detail-description"></p>
+                    <button id="close-modal-btn" class="mt-4 w-full bg-[#e07a5f] hover:bg-[#d66a4f] text-white font-bold py-2 px-4 rounded-lg transition-colors">Cerrar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Vista del Portal (Transición) -->
+        <div id="portal-view" class="hidden fixed inset-0 bg-black flex-col items-center justify-center z-50">
+            <div id="portal-icon" class="w-48 h-48 rounded-full flex items-center justify-center text-2xl font-bold text-white cursor-pointer" style="background: radial-gradient(circle, #f2cc8f 0%, #81b29a 100%);">
+                <span class="text-gray-800">Túnel del Tiempo</span>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Contenedor de la Escena 3D -->
+    <div id="threed-container">
+        <canvas id="threed-canvas"></canvas>
+        <div id="loading-indicator">Cargando Escenario...</div>
+        <button id="back-to-pokedex-btn" class="bg-[#e07a5f] hover:bg-[#d66a4f] text-white font-bold py-2 px-6 rounded-full shadow-lg">
+            &larr; Salir del Túnel
+        </button>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+        // --- Base de Datos Educativa ---
+        const dinoData = [
+            { 
+                id: 1, name: "Chilesaurus", 
+                image: "https://cdn.jsdelivr.net/gh/jhongao21/dinopruebas@main/Chilesaurus-diegosuarezi.webp", 
+                types: ["Herbívoro"], color: "#81b29a", 
+                periodo: "Jurásico Superior",
+                description: "¡Un dinosaurio único encontrado en Chile! Tenía una extraña mezcla de rasgos: cabeza pequeña, dientes de herbívoro y garras fuertes. ¡Un verdadero rompecabezas!"
+            },
+            { 
+                id: 2, name: "Tyrannosaurus", 
+                image: "https://storage.googleapis.com/gemini-prod-us-central1-gdcs-public/pokedex/tyrannosaurus.png", 
+                types: ["Carnívoro"], color: "#e07a5f",
+                periodo: "Cretácico Superior",
+                description: "Conocido como el 'rey de los dinosaurios lagarto', tenía una de las mordidas más poderosas. ¡Sus dientes eran del tamaño de plátanos!"
+            },
+            { 
+                id: 3, name: "Triceratops", 
+                image: "https://storage.googleapis.com/gemini-prod-us-central1-gdcs-public/pokedex/triceratops.png", 
+                types: ["Herbívoro", "Acorazado"], color: "#3d405b",
+                periodo: "Cretácico Superior",
+                description: "Famoso por sus tres cuernos y su gran placa ósea en el cuello, que usaba para defenderse de depredadores como el T-Rex."
+            },
+            { 
+                id: 4, name: "Stegosaurus", 
+                image: "https://storage.googleapis.com/gemini-prod-us-central1-gdcs-public/pokedex/stegosaurus.png", 
+                types: ["Herbívoro", "Acorazado"], color: "#f2cc8f",
+                periodo: "Jurásico Superior",
+                description: "Tenía grandes placas en su espalda, que quizás usaba para regular su temperatura, y una cola con cuatro púas afiladas para defenderse."
+            },
+            { 
+                id: 5, name: "Velociraptor", 
+                image: "https://storage.googleapis.com/gemini-prod-us-central1-gdcs-public/pokedex/velociraptor.png", 
+                types: ["Carnívoro"], color: "#bca08c",
+                periodo: "Cretácico Superior",
+                description: "Mucho más pequeño de lo que muestran las películas, ¡era del tamaño de un pavo! Era un cazador inteligente que probablemente tenía plumas."
+            },
+            { 
+                id: 6, name: "Túnel del Tiempo", 
+                image: "https://storage.googleapis.com/gemini-prod-us-central1-gdcs-public/pokedex/portal.png", 
+                types: ["Misterio"], color: "#f4f1de", 
+                isPortal: true 
+            }
+        ];
+        const typeColors = { "Herbívoro": "#81b29a", "Carnívoro": "#e07a5f", "Acorazado": "#3d405b", "Misterio": "#6c757d" };
+
+        // --- Elementos del DOM ---
+        const app2DContainer = document.getElementById('app-2d-container');
+        const pokedexGrid = document.querySelector('.pokedex-grid');
+        const detailModal = document.getElementById('detail-modal');
+        const portalView = document.getElementById('portal-view');
+        const portalIcon = document.getElementById('portal-icon');
+        const threedContainer = document.getElementById('threed-container');
+        const loadingIndicator = document.getElementById('loading-indicator');
+
+        // --- Lógica PaleoDex ---
+        function populatePokedex() {
+            pokedexGrid.innerHTML = '';
+            dinoData.forEach(item => {
+                const card = document.createElement('div');
+                card.className = 'p-2 rounded-lg shadow-md flex flex-col items-center justify-center cursor-pointer transform hover:scale-105 transition-transform';
+                const cardColor = item.isPortal ? '#6c757d' : item.color;
+                card.style.backgroundColor = cardColor;
+                card.innerHTML = `
+                    <div class="w-full h-24 bg-black/20 rounded-md flex items-center justify-center mb-2">
+                        <img src="${item.image}" alt="${item.name}" class="w-20 h-20 object-contain drop-shadow-lg" loading="lazy">
+                    </div>
+                    <span class="text-center font-bold text-white text-shadow">${item.name}</span>
+                `;
+                card.addEventListener('click', () => {
+                    if (item.isPortal) {
+                        enterPortal();
+                    } else {
+                        openDetailModal(item);
+                    }
+                });
+                pokedexGrid.appendChild(card);
+            });
+        }
+
+        function openDetailModal(item) {
+            const card = detailModal.querySelector('#detail-card');
+            card.style.setProperty('--card-color', item.color);
+            detailModal.querySelector('h3').textContent = item.name;
+            detailModal.querySelector('span').textContent = `#${String(item.id).padStart(3, '0')}`;
+            detailModal.querySelector('img').src = item.image;
+            detailModal.querySelector('#detail-period').textContent = item.periodo;
+            detailModal.querySelector('#detail-description').textContent = item.description;
+            
+            const typesContainer = detailModal.querySelector('.flex.justify-center.gap-2');
+            typesContainer.innerHTML = item.types.map(type => 
+                `<span class="px-3 py-1 rounded-full text-sm font-bold text-white shadow" style="background-color: ${typeColors[type] || '#777'}">${type}</span>`
+            ).join('');
+
+            detailModal.style.display = 'flex';
+            setTimeout(() => card.classList.remove('scale-95'), 10);
+        }
+
+        function closeDetailModal() {
+            detailModal.querySelector('#detail-card').classList.add('scale-95');
+            setTimeout(() => { detailModal.style.display = 'none'; }, 300);
+        }
+        
+        detailModal.querySelector('#close-modal-btn').addEventListener('click', closeDetailModal);
+
+        // --- Lógica del Portal y 3D ---
+        let scene, camera, renderer, controls, mixer;
+        const clock = new THREE.Clock();
+        let sceneReady = false;
+
+        function enterPortal() {
+            portalView.style.display = 'flex';
+            portalIcon.classList.add('portal-entry-animation');
+
+            portalIcon.addEventListener('animationend', () => {
+                portalIcon.classList.remove('portal-entry-animation');
+                portalIcon.classList.add('portal-exit-animation');
+                
+                portalIcon.addEventListener('animationend', () => {
+                    portalView.style.display = 'none';
+                    portalIcon.classList.remove('portal-exit-animation');
+                    app2DContainer.style.display = 'none';
+                    threedContainer.style.display = 'block';
+                    if (!sceneReady) {
+                        initThreeScene();
+                    }
+                    renderer.setAnimationLoop(animateThreeScene);
+                }, { once: true });
+
+            }, { once: true });
+        }
+
+        function exitPortal() {
+            app2DContainer.style.display = 'flex';
+            threedContainer.style.display = 'none';
+            if (renderer) renderer.setAnimationLoop(null);
+        }
+        
+        document.getElementById('back-to-pokedex-btn').addEventListener('click', exitPortal);
+
+        function initThreeScene() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB); // Sky blue
+            scene.fog = new THREE.Fog(0x87CEEB, 20, 60);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('threed-canvas'), antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.outputEncoding = THREE.sRGBEncoding;
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.minDistance = 2;
+            controls.maxDistance = 25; 
+            controls.target.set(0, 1.5, 0);
+
+            // Iluminación
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            const dirLight = new THREE.DirectionalLight(0xffefd5, 3);
+            dirLight.position.set(10, 20, 5);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            scene.add(dirLight);
+
+            // Cargar modelo del escenario
+            const loader = new GLTFLoader();
+            loadingIndicator.style.display = 'block';
+            loader.load(
+                // URL ACTUALIZADA para el nuevo escenario
+                'https://cdn.jsdelivr.net/gh/jhongao21/dinopruebas@main/forest2.glb',
+                function (gltf) {
+                    const model = gltf.scene;
+                    model.scale.set(1.5, 1.5, 1.5);
+                    model.position.set(0, 0, 0);
+                    model.traverse(function (node) {
+                        if (node.isMesh) {
+                            node.castShadow = true;
+                            node.receiveShadow = true;
+                        }
+                    });
+                    scene.add(model);
+                    loadingIndicator.style.display = 'none';
+                    sceneReady = true;
+                },
+                undefined, // onProgress
+                function (error) {
+                    console.error('Error al cargar el modelo 3D:', error);
+                    loadingIndicator.textContent = 'Error al cargar escenario';
+                }
+            );
+            
+            // Posición inicial de la cámara
+            camera.position.set(0, 10, 25);
+            controls.update();
+        }
+
+        function animateThreeScene() {
+            const delta = clock.getDelta();
+            controls.update();
+            if (mixer) {
+                mixer.update(delta);
+            }
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            if (threedContainer.style.display === 'block') {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+        });
+        
+        populatePokedex();
+    </script>
+</body>
+</html>
+
